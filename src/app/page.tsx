@@ -1,6 +1,190 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+function C64Boot({ onComplete }: { onComplete: () => void }) {
+  const [phase, setPhase] = useState<"idle"|"typedLoad"|"searching"|"loading"|"ready"|"typedRun"|"launching">("idle");
+  const [typed, setTyped] = useState("");
+  const [showCursor, setShowCursor] = useState(true);
+  const [input, setInput] = useState("");
+  const fullLoad = 'LOAD "*",8,1';
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // blink cursor
+  useEffect(() => {
+    const id = setInterval(() => setShowCursor(v => !v), 530);
+    return () => clearInterval(id);
+  }, []);
+
+  // auto-type LOAD on mount
+  useEffect(() => {
+    let i = 0;
+    const t = setInterval(() => {
+      i++;
+      setTyped(fullLoad.slice(0, i));
+      if (i >= fullLoad.length) {
+        clearInterval(t);
+        setTimeout(() => setPhase("searching"), 400);
+      }
+    }, 90);
+    return () => clearInterval(t);
+  }, []);
+
+  // phase machine
+  useEffect(() => {
+    if (phase === "searching") {
+      const id = setTimeout(() => setPhase("loading"), 1200);
+      return () => clearTimeout(id);
+    }
+    if (phase === "loading") {
+      const id = setTimeout(() => setPhase("ready"), 1800);
+      return () => clearTimeout(id);
+    }
+    if (phase === "launching") {
+      const id = setTimeout(() => onComplete(), 700);
+      return () => clearTimeout(id);
+    }
+  }, [phase, onComplete]);
+
+  // focus for typing RUN
+  useEffect(() => {
+    containerRef.current?.focus();
+  }, [phase]);
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (phase !== "ready") return;
+    if (e.key === "Enter") {
+      if (input.trim().toUpperCase() === "RUN") {
+        setPhase("typedRun");
+        setTimeout(() => setPhase("launching"), 300);
+      } else if (input.trim().length) {
+        setInput("");
+      }
+      return;
+    }
+    if (e.key === "Backspace") {
+      setInput(v => v.slice(0, -1));
+      return;
+    }
+    if (e.key.length === 1 && input.length < 20) {
+      // allow letters, symbols, numbers
+      setInput(v => v + e.key.toUpperCase());
+    }
+  }
+
+  const loadingBars = useMemo(() => {
+    if (phase !== "loading") return null;
+    return (
+      <div className="mt-2 font-mono text-[13px] leading-none">
+        <div className="text-[#A9FFA9]">{"▓".repeat(18)} LOADING {"▓".repeat(18)}</div>
+        <div className="mt-1 flex gap-[2px] flex-wrap">
+          {Array.from({length: 40}).map((_,i)=>(
+            <span key={i} className="inline-block w-[6px] h-[10px]" style={{background: i%3===0 ? "#FF6B6B" : i%3===1 ? "#6BFFB8" : "#6B8DFF", opacity: 0.9, animation: "c64flicker 120ms infinite", animationDelay: i*18+"ms"}} />
+          ))}
+        </div>
+      </div>
+    );
+  }, [phase]);
+
+  return (
+    <div
+      ref={containerRef}
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      onClick={() => containerRef.current?.focus()}
+      className="fixed inset-0 z-[100] flex flex-col items-center justify-start outline-none"
+      style={{ background: "#4040E8", padding: "3.2vw" }}
+      aria-label="Commodore 64 boot screen"
+    >
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+      @keyframes c64flicker { 0%{opacity:1} 50%{opacity:0.6} 100%{opacity:1} }
+      @keyframes c64pulse { 0%,100%{opacity:1} 50%{opacity:0} }
+      `}</style>
+      {/* scanlines */}
+      <div className="pointer-events-none absolute inset-0 opacity-[0.11]" style={{background: "repeating-linear-gradient(0deg, transparent, transparent 2px, #000 2px, #000 3px)"}} />
+      {/* vignette */}
+      <div className="pointer-events-none absolute inset-0 opacity-30" style={{background: "radial-gradient(ellipse at center, transparent 62%, rgba(0,0,0,0.55) 100%)"}} />
+      {/* inner screen */}
+      <div className="relative w-full max-w-[860px] flex-1 min-h-[420px] p-6 md:p-8 overflow-hidden" style={{ background: "#3838CC", boxShadow: "inset 0 0 0 6px #3838CC, 0 0 0 12px #4040E8, 0 18px 40px rgba(0,0,0,0.5)", fontFamily: "'VT323', monospace" }}>
+        {/* top header */}
+        <div className="text-center leading-none" style={{ color: "#A8A8FF", fontSize: "18px", letterSpacing: "0.02em", textShadow: "0 0 6px rgba(168,168,255,0.35)" }}>
+          <div>**** COMMODORE 64 BASIC V2 ****</div>
+          <div className="mt-1">64K RAM SYSTEM  38911 BASIC BYTES FREE</div>
+        </div>
+        <div className="mt-6" style={{ color: "#A8A8FF", fontSize: "22px", lineHeight: "1.25" }}>
+          {/* typed LOAD line */}
+          <div className="flex flex-wrap items-baseline gap-0">
+            <span>READY.</span>
+          </div>
+          <div className="mt-4 flex items-center gap-1">
+            <span className="opacity-90">{typed || (phase==="idle" ? "" : fullLoad)}</span>
+            {phase==="idle" || phase==="searching" || phase==="loading" ? (
+              <span className="inline-block w-[14px] h-[18px] ml-[2px] translate-y-[2px]" style={{ background: showCursor ? "#A8A8FF" : "transparent", boxShadow: showCursor ? "0 0 6px rgba(168,168,255,0.9)" : "none" }} />
+            ) : null}
+          </div>
+          {phase==="searching" && (
+            <div className="mt-3 space-y-1 text-[#A8A8FF]">
+              <div>SEARCHING FOR *</div>
+              <div className="flex items-center gap-2">
+                <span>LOADING</span>
+                <span className="inline-block w-[14px] h-[18px] bg-[#A8A8FF]" style={{ animation: "c64pulse 420ms steps(1) infinite" }} />
+              </div>
+            </div>
+          )}
+          {phase==="loading" && (
+            <div className="mt-3 space-y-2 text-[#A8A8FF]">
+              <div>SEARCHING FOR *</div>
+              <div>LOADING</div>
+              {loadingBars}
+              <div className="text-[#FFE066] text-[13px] mt-2 tracking-widest">▞▞ TAPE MOTOR ON ▞▞  1531 BYTES / SEC</div>
+            </div>
+          )}
+          {(phase==="ready" || phase==="typedRun" || phase==="launching") && (
+            <div className="mt-3 space-y-3">
+              <div>SEARCHING FOR *</div>
+              <div>LOADING</div>
+              <div>READY.</div>
+              {phase==="ready" && (
+                <>
+                  <div className="flex items-center gap-1 mt-2">
+                    <span>{input}</span>
+                    <span className="inline-block w-[14px] h-[18px] bg-[#A8A8FF]" style={{ opacity: showCursor ? 1 : 0 }} />
+                  </div>
+                  <div className="mt-1 text-[14px] leading-relaxed opacity-90">
+                    <div>Type <span className="bg-[#A8A8FF] text-[#3838CC] px-1">RUN</span> + RETURN to launch <span className="text-[#FFE066]">COFFEERUN</span> — or press <span className="underline decoration-wavy">ENTER</span>.</div>
+                    <div className="mt-1 text-[#7EC8E3]">— COFFEERUN • ISOMETRIC OFFICE CARAVAN • 1541 DISK DRIVE READY —</div>
+                  </div>
+                </>
+              )}
+              {phase==="typedRun" && (
+                <div className="flex items-center gap-1"><span>RUN</span><span className="inline-block w-[14px] h-[18px] bg-[#A8A8FF]" /></div>
+              )}
+              {phase==="launching" && (
+                <div className="space-y-1">
+                  <div>RUN</div>
+                  <div className="text-[#A9FFA9]">LOADING COFFEERUN…  042 BLOCKS FREE</div>
+                  <div className="text-[#FFE066] text-[12px]">☻ ☺ ♥ ♦ ♣ ♠ • ◘ ○ ◙ ♂ ♀♪ ♫☼ ► ◄ ↕ ‼ ¶ § ▬ ↨ ↑ ↓ → ← ∟ ↔ ▲ ▼</div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {/* bottom charm */}
+        <div className="absolute bottom-3 left-6 right-6 flex justify-between items-end">
+          <div className="text-[11px] tracking-[0.18em] opacity-60" style={{color:"#A8A8FF"}}>● 8  ● 1  ● READY  ● COFFEERUN.PRG</div>
+          <div className="text-[11px] opacity-60" style={{color:"#A8A8FF"}}>PRESS PLAY ON TAPE</div>
+        </div>
+      </div>
+      {/* outside label */}
+      <div className="mt-3 flex items-center gap-2 text-[11px] tracking-[0.2em]" style={{color:"#C8C8FF", fontFamily:"monospace"}}>
+        <span className="px-2 py-1 rounded bg-black/25 border border-white/15">COMMODORE 64</span>
+        <span className="opacity-70">— LOAD &quot;*&quot;,8,1 —</span>
+        <button onClick={onComplete} className="ml-2 px-2.5 py-1 rounded bg-[#FFE066] text-[#1e120a] font-bold tracking-normal hover:bg-white">SKIP ▶</button>
+      </div>
+    </div>
+  );
+}
+
+
 // ---- Types ----
 type Shop = { id: string; name: string; address: string; phone: string; notes: string; createdAt: string };
 type Menu = { id: string; shopId: string; name: string; description: string };
@@ -349,10 +533,23 @@ export default function Home() {
     return sum + price;
   },0);
 
+  const [c64Done, setC64Done] = useState(false);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("coffeerun-c64-seen") === "1") setC64Done(true);
+    } catch {}
+  }, []);
+  function dismissC64() {
+    try { localStorage.setItem("coffeerun-c64-seen", "1"); } catch {}
+    setC64Done(true);
+  }
+
   if (!hydrated) return <div className="min-h-screen grid place-items-center mono text-sm">Loading CoffeeRun…</div>;
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <>
+      {!c64Done && <C64Boot onComplete={dismissC64} />}
+      <div className="min-h-screen flex flex-col">
       {/* header */}
       <header className="sticky top-0 z-30 wood-panel">
         <div className="mx-auto max-w-[1240px] px-4 py-3 flex items-center gap-4">
@@ -1104,6 +1301,7 @@ export default function Home() {
           <span className="opacity-60">COFFEE-9 → 38 covered • no backend • deploy to Vercel preview for UAT</span>
         </div>
       </footer>
-    </div>
+      </div>
+    </>
   );
 }
